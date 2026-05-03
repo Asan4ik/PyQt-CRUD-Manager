@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
     QPushButton, QStackedWidget, QDialog,
     QLineEdit, QTextEdit, QComboBox,
     QFileDialog, QScrollArea, QFrame,
-    QMessageBox, QDateEdit
+    QMessageBox, QDateEdit, QCheckBox,
+    QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt, QDate
 
@@ -112,11 +113,33 @@ CHECKBOX_STYLE = """
     }
 """
 
+# Status badge colors and labels
+STATUS_META = {
+    "todo":       {"label": "☐ To Do",       "bg": "#45475a", "color": "#cdd6f4"},
+    "inprogress": {"label": "⟳ In Progress",  "bg": "#1e3a5f", "color": "#89b4fa"},
+    "done":       {"label": "✓ Done",         "bg": "#1e3a2f", "color": "#a6e3a1"},
+}
+
+def status_badge_style(status: str) -> str:
+    meta = STATUS_META.get(status, STATUS_META["todo"])
+    return f"""
+        QPushButton {{
+            background-color: {meta['bg']};
+            color: {meta['color']};
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 10px;
+            border: none;
+            border-radius: 10px;
+        }}
+        QPushButton:hover {{
+            border: 1px solid {meta['color']};
+        }}
+    """
+
 # ── Add Task Dialog ───────────────────────────────────────────────────────────
 
 class AddTaskDialog(QDialog):
-    """Modal dialog for entering new task details."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("New Task")
@@ -147,7 +170,6 @@ class AddTaskDialog(QDialog):
         layout.addWidget(self.status_input)
 
         layout.addWidget(self._label("Deadline (optional)"))
-        # Row: date picker + "No deadline" checkbox
         deadline_row = QHBoxLayout()
         self.deadline_input = QDateEdit()
         self.deadline_input.setCalendarPopup(True)
@@ -155,7 +177,6 @@ class AddTaskDialog(QDialog):
         self.deadline_input.setStyleSheet(INPUT_STYLE)
         self.deadline_input.setDisplayFormat("dd MMM yyyy")
 
-        from PySide6.QtWidgets import QCheckBox
         self.no_deadline_cb = QCheckBox("No deadline")
         self.no_deadline_cb.setStyleSheet(CHECKBOX_STYLE)
         self.no_deadline_cb.setChecked(True)
@@ -191,14 +212,136 @@ class AddTaskDialog(QDialog):
             deadline,
         )
 
+# ── Edit Task Dialog ──────────────────────────────────────────────────────────
+
+RADIO_STYLE = """
+    QRadioButton {{
+        color: {color};
+        font-size: 13px;
+        font-weight: bold;
+        spacing: 8px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background-color: {bg};
+    }}
+    QRadioButton::indicator {{
+        width: 0px;
+        height: 0px;
+    }}
+    QRadioButton:checked {{
+        border: 2px solid {color};
+    }}
+    QRadioButton:hover {{
+        background-color: {hover};
+    }}
+"""
+
+class EditTaskDialog(QDialog):
+    """Dialog for editing task status and deadline."""
+
+    def __init__(self, task: dict, parent=None):
+        super().__init__(parent)
+        self.task = task
+        self.setWindowTitle("Edit Task")
+        self.setMinimumWidth(380)
+        self.setStyleSheet("background-color: #1e1e2e; color: #cdd6f4;")
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(24, 24, 24, 24)
+
+        # ── Task title (read-only header) ──
+        title_lbl = QLabel(task.get("title", "Untitled"))
+        title_lbl.setStyleSheet(
+            "color: #cdd6f4; font-size: 15px; font-weight: bold;"
+            "padding-bottom: 4px; border-bottom: 1px solid #45475a;"
+        )
+        title_lbl.setWordWrap(True)
+        layout.addWidget(title_lbl)
+
+        # ── Status section ──
+        layout.addWidget(self._label("Status"))
+
+        self.status_group = QButtonGroup(self)
+        current_status = task.get("status", "todo")
+
+        status_items = [
+            ("todo",       "☐  To Do",       "#cdd6f4", "#45475a", "#585b70"),
+            ("inprogress", "⟳  In Progress",  "#89b4fa", "#1e3a5f", "#1a2f4a"),
+            ("done",       "✓  Done",         "#a6e3a1", "#1e3a2f", "#1a3028"),
+        ]
+
+        for value, label, color, bg, hover in status_items:
+            rb = QRadioButton(label)
+            rb.setProperty("status_value", value)
+            rb.setChecked(value == current_status)
+            rb.setStyleSheet(
+                RADIO_STYLE.format(color=color, bg=bg, hover=hover)
+            )
+            self.status_group.addButton(rb)
+            layout.addWidget(rb)
+
+        # ── Deadline section ──
+        layout.addSpacing(4)
+        layout.addWidget(self._label("Deadline"))
+
+        deadline_row = QHBoxLayout()
+        self.deadline_input = QDateEdit()
+        self.deadline_input.setCalendarPopup(True)
+        self.deadline_input.setDisplayFormat("dd MMM yyyy")
+        self.deadline_input.setStyleSheet(INPUT_STYLE)
+
+        existing_deadline = task.get("deadline", "")
+        if existing_deadline:
+            d = QDate.fromString(existing_deadline, "yyyy-MM-dd")
+            self.deadline_input.setDate(d if d.isValid() else QDate.currentDate())
+        else:
+            self.deadline_input.setDate(QDate.currentDate())
+
+        self.no_deadline_cb = QCheckBox("No deadline")
+        self.no_deadline_cb.setStyleSheet(CHECKBOX_STYLE)
+        has_deadline = bool(existing_deadline)
+        self.no_deadline_cb.setChecked(not has_deadline)
+        self.deadline_input.setEnabled(has_deadline)
+        self.no_deadline_cb.toggled.connect(
+            lambda checked: self.deadline_input.setEnabled(not checked)
+        )
+
+        deadline_row.addWidget(self.deadline_input)
+        deadline_row.addWidget(self.no_deadline_cb)
+        layout.addLayout(deadline_row)
+
+        # ── Save button ──
+        layout.addSpacing(8)
+        save_btn = QPushButton("Save Changes")
+        save_btn.setStyleSheet(DIALOG_BTN_STYLE)
+        save_btn.clicked.connect(self.accept)
+        layout.addWidget(save_btn)
+
+    def _label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: #a6adc8; font-size: 12px; font-weight: bold;")
+        return lbl
+
+    def get_values(self) -> tuple[str, str]:
+        """Returns (new_status, new_deadline)."""
+        selected = self.status_group.checkedButton()
+        new_status = selected.property("status_value") if selected else self.task.get("status", "todo")
+        deadline = ""
+        if not self.no_deadline_cb.isChecked():
+            deadline = self.deadline_input.date().toString("yyyy-MM-dd")
+        return new_status, deadline
+
+
 # ── Task Card Widget ──────────────────────────────────────────────────────────
 
 class TaskCard(QFrame):
-    """A single task displayed as a card with a delete button."""
+    """A single task card with delete button and a status badge that opens an edit dialog."""
 
-    def __init__(self, task: dict, on_delete, parent=None):
+    def __init__(self, task: dict, on_delete, on_edit, parent=None):
         super().__init__(parent)
         self.task = task
+        self.on_edit = on_edit
         self.setStyleSheet(TASK_CARD_STYLE)
         self.setFrameShape(QFrame.StyledPanel)
 
@@ -232,30 +375,47 @@ class TaskCard(QFrame):
             desc_label.setWordWrap(True)
             outer.addWidget(desc_label)
 
-        # ── Date row: created + deadline ──
-        date_row = QHBoxLayout()
-        date_row.setSpacing(16)
+        # ── Bottom row: dates + status badge ──
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(16)
 
         created = format_date(task.get("created_at", ""))
         if created:
             created_lbl = QLabel(f"📅 Added: {created}")
             created_lbl.setStyleSheet("color: #6c7086; font-size: 11px;")
-            date_row.addWidget(created_lbl)
+            bottom_row.addWidget(created_lbl)
 
         deadline = format_date(task.get("deadline", ""))
         if deadline:
             deadline_lbl = QLabel(f"⏰ Due: {deadline}")
             deadline_lbl.setStyleSheet("color: #fab387; font-size: 11px; font-weight: bold;")
-            date_row.addWidget(deadline_lbl)
+            bottom_row.addWidget(deadline_lbl)
 
-        date_row.addStretch()
-        outer.addLayout(date_row)
+        bottom_row.addStretch()
+
+        # ── Status badge → opens EditTaskDialog ──
+        current_status = task.get("status", "todo")
+        meta = STATUS_META.get(current_status, STATUS_META["todo"])
+
+        self.status_btn = QPushButton(meta["label"])
+        self.status_btn.setStyleSheet(status_badge_style(current_status))
+        self.status_btn.setToolTip("Edit status / deadline")
+        self.status_btn.setCursor(Qt.PointingHandCursor)
+        self.status_btn.clicked.connect(self._open_edit_dialog)
+        bottom_row.addWidget(self.status_btn)
+
+        outer.addLayout(bottom_row)
+
+    def _open_edit_dialog(self) -> None:
+        dialog = EditTaskDialog(self.task, parent=self.window())
+        if dialog.exec() == QDialog.Accepted:
+            new_status, new_deadline = dialog.get_values()
+            self.on_edit(self.task.get("id"), new_status, new_deadline)
+
 
 # ── Task Page (one per status) ────────────────────────────────────────────────
 
 class TaskPage(QWidget):
-    """Scrollable page showing all tasks for a given status."""
-
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
 
@@ -285,8 +445,7 @@ class TaskPage(QWidget):
         self.scroll.setWidget(self.cards_widget)
         outer.addWidget(self.scroll)
 
-    def refresh(self, tasks: list[dict], on_delete) -> None:
-        """Clear and re-render all task cards."""
+    def refresh(self, tasks: list[dict], on_delete, on_edit) -> None:
         for i in reversed(range(self.cards_layout.count())):
             item = self.cards_layout.itemAt(i)
             widget = item.widget() if item else None
@@ -300,7 +459,7 @@ class TaskPage(QWidget):
 
         self.empty_label.hide()
         for task in tasks:
-            self.cards_layout.addWidget(TaskCard(task, on_delete))
+            self.cards_layout.addWidget(TaskCard(task, on_delete, on_edit))
 
 # ── Main Window ───────────────────────────────────────────────────────────────
 
@@ -376,20 +535,18 @@ class MainWindow(QMainWindow):
         self.switch_page(0)
         self.refresh_all_pages()
 
-    # ── Navigation ────────────────────────────────────────────────────────────
-
     def switch_page(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self.nav_buttons):
             btn.setChecked(i == index)
 
-    # ── Refresh ───────────────────────────────────────────────────────────────
-
     def refresh_all_pages(self) -> None:
         for key, page in self.pages.items():
-            page.refresh(get_tasks_by_status(self.tasks, key), self.on_delete_task)
-
-    # ── Slots ─────────────────────────────────────────────────────────────────
+            page.refresh(
+                get_tasks_by_status(self.tasks, key),
+                self.on_delete_task,
+                self.on_edit_task,
+            )
 
     def on_add_task(self) -> None:
         dialog = AddTaskDialog(self)
@@ -417,6 +574,16 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
         delete_task(self.tasks, task_id)
+        save_tasks(self.tasks, self.current_file)
+        self.refresh_all_pages()
+
+    def on_edit_task(self, task_id: str, new_status: str, new_deadline: str) -> None:
+        """Update a task's status and deadline, then refresh all pages."""
+        for task in self.tasks:
+            if task.get("id") == task_id:
+                task["status"] = new_status
+                task["deadline"] = new_deadline
+                break
         save_tasks(self.tasks, self.current_file)
         self.refresh_all_pages()
 
