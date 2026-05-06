@@ -17,6 +17,8 @@ from utils.helpers import (
 )
 
 DEFAULT_PATH = Path("data/tasks.json")
+MIN_PRIORITY = 0
+MAX_PRIORITY = 3
 
 # ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -115,10 +117,57 @@ CHECKBOX_STYLE = """
 
 # Status badge colors and labels
 STATUS_META = {
-    "todo":       {"label": "☐ To Do",       "bg": "#45475a", "color": "#cdd6f4"},
-    "inprogress": {"label": "⟳ In Progress",  "bg": "#1e3a5f", "color": "#89b4fa"},
-    "done":       {"label": "✓ Done",         "bg": "#1e3a2f", "color": "#a6e3a1"},
+    "todo":       {"label": "🗒️ To Do",       "bg": "#45475a", "color": "#cdd6f4"},
+    "inprogress": {"label": "🚧 In Progress",  "bg": "#1e3a5f", "color": "#89b4fa"},
+    "done":       {"label": "🏁 Done",         "bg": "#1e3a2f", "color": "#a6e3a1"},
 }
+
+PRIORITY_META = {
+    0: {"label": "No priority", "prefix": "", "bg": "#45475a", "color": "#a6adc8"},
+    1: {"label": "! Low", "prefix": "!", "bg": "#3a3144", "color": "#cba6f7"},
+    2: {"label": "!! Medium", "prefix": "!!", "bg": "#4a351f", "color": "#fab387"},
+    3: {"label": "!!! High", "prefix": "!!!", "bg": "#4a2633", "color": "#f38ba8"},
+}
+
+
+def normalize_priority(priority: int | str | None) -> int:
+    """Return a safe task priority from 0 (normal) to 3 (highest)."""
+    try:
+        normalized = int(priority)
+    except (TypeError, ValueError):
+        return MIN_PRIORITY
+    return max(MIN_PRIORITY, min(MAX_PRIORITY, normalized))
+
+
+def sort_tasks_by_priority(tasks: list[dict]) -> list[dict]:
+    """Sort already-filtered tasks by priority first, keeping helper deadline ordering next."""
+    return sorted(
+        tasks,
+        key=lambda task: -normalize_priority(task.get("priority", MIN_PRIORITY)),
+    )
+
+
+def priority_prefix(priority: int | str | None) -> str:
+    return PRIORITY_META[normalize_priority(priority)]["prefix"]
+
+
+def priority_label(priority: int | str | None) -> str:
+    return PRIORITY_META[normalize_priority(priority)]["label"]
+
+
+def priority_badge_style(priority: int | str | None) -> str:
+    meta = PRIORITY_META[normalize_priority(priority)]
+    return f"""
+        QLabel {{
+            background-color: {meta['bg']};
+            color: {meta['color']};
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 10px;
+            border-radius: 10px;
+        }}
+    """
+
 
 def status_badge_style(status: str) -> str:
     meta = STATUS_META.get(status, STATUS_META["todo"])
@@ -169,6 +218,12 @@ class AddTaskDialog(QDialog):
         self.status_input.setStyleSheet(INPUT_STYLE)
         layout.addWidget(self.status_input)
 
+        layout.addWidget(self._label("Priority"))
+        self.priority_input = QComboBox()
+        self.priority_input.addItems([meta["label"] for meta in PRIORITY_META.values()])
+        self.priority_input.setStyleSheet(INPUT_STYLE)
+        layout.addWidget(self.priority_input)
+
         layout.addWidget(self._label("Deadline (optional)"))
         deadline_row = QHBoxLayout()
         self.deadline_input = QDateEdit()
@@ -200,7 +255,7 @@ class AddTaskDialog(QDialog):
         lbl.setStyleSheet("color: #a6adc8; font-size: 12px; font-weight: bold;")
         return lbl
 
-    def get_values(self) -> tuple[str, str, str, str]:
+    def get_values(self) -> tuple[str, str, str, str, int]:
         status_map = {"To Do": "todo", "In Progress": "inprogress", "Done": "done"}
         deadline = ""
         if not self.no_deadline_cb.isChecked():
@@ -210,6 +265,7 @@ class AddTaskDialog(QDialog):
             self.desc_input.toPlainText().strip(),
             status_map[self.status_input.currentText()],
             deadline,
+            self.priority_input.currentIndex(),
         )
 
 # ── Edit Task Dialog ──────────────────────────────────────────────────────────
@@ -266,9 +322,9 @@ class EditTaskDialog(QDialog):
         current_status = task.get("status", "todo")
 
         status_items = [
-            ("todo",       "☐  To Do",       "#cdd6f4", "#45475a", "#585b70"),
-            ("inprogress", "⟳  In Progress",  "#89b4fa", "#1e3a5f", "#1a2f4a"),
-            ("done",       "✓  Done",         "#a6e3a1", "#1e3a2f", "#1a3028"),
+            ("todo",       "🗒️  To Do",       "#cdd6f4", "#45475a", "#585b70"),
+            ("inprogress", "🚧  In Progress",  "#89b4fa", "#1e3a5f", "#1a2f4a"),
+            ("done",       "🏁  Done",         "#a6e3a1", "#1e3a2f", "#1a3028"),
         ]
 
         for value, label, color, bg, hover in status_items:
@@ -279,6 +335,30 @@ class EditTaskDialog(QDialog):
                 RADIO_STYLE.format(color=color, bg=bg, hover=hover)
             )
             self.status_group.addButton(rb)
+            layout.addWidget(rb)
+
+        # ── Priority section ──
+        layout.addSpacing(4)
+        layout.addWidget(self._label("Priority"))
+
+        self.priority_group = QButtonGroup(self)
+        current_priority = normalize_priority(task.get("priority", 0))
+
+        priority_items = [
+            (0, "No priority", "#a6adc8", "#45475a", "#585b70"),
+            (1, "!  Low", "#cba6f7", "#3a3144", "#493b5a"),
+            (2, "!!  Medium", "#fab387", "#4a351f", "#5a4329"),
+            (3, "!!!  High", "#f38ba8", "#4a2633", "#5f3141"),
+        ]
+
+        for value, label, color, bg, hover in priority_items:
+            rb = QRadioButton(label)
+            rb.setProperty("priority_value", value)
+            rb.setChecked(value == current_priority)
+            rb.setStyleSheet(
+                RADIO_STYLE.format(color=color, bg=bg, hover=hover)
+            )
+            self.priority_group.addButton(rb)
             layout.addWidget(rb)
 
         # ── Deadline section ──
@@ -323,14 +403,20 @@ class EditTaskDialog(QDialog):
         lbl.setStyleSheet("color: #a6adc8; font-size: 12px; font-weight: bold;")
         return lbl
 
-    def get_values(self) -> tuple[str, str]:
-        """Returns (new_status, new_deadline)."""
+    def get_values(self) -> tuple[str, str, int]:
+        """Returns (new_status, new_deadline, new_priority)."""
         selected = self.status_group.checkedButton()
+        priority_selected = self.priority_group.checkedButton()
         new_status = selected.property("status_value") if selected else self.task.get("status", "todo")
+        new_priority = (
+            priority_selected.property("priority_value")
+            if priority_selected
+            else normalize_priority(self.task.get("priority", 0))
+        )
         deadline = ""
         if not self.no_deadline_cb.isChecked():
             deadline = self.deadline_input.date().toString("yyyy-MM-dd")
-        return new_status, deadline
+        return new_status, deadline, new_priority
 
 
 # ── Task Card Widget ──────────────────────────────────────────────────────────
@@ -353,7 +439,9 @@ class TaskCard(QFrame):
         top_row = QHBoxLayout()
         top_row.setSpacing(8)
 
-        title = QLabel(task.get("title", "Untitled"))
+        prefix = priority_prefix(task.get("priority", 0))
+        title_text = task.get("title", "Untitled")
+        title = QLabel(f"{prefix} {title_text}" if prefix else title_text)
         title.setStyleSheet("color: #cdd6f4; font-size: 14px; font-weight: bold;")
         title.setWordWrap(True)
         top_row.addWidget(title, stretch=1)
@@ -379,6 +467,12 @@ class TaskCard(QFrame):
         bottom_row = QHBoxLayout()
         bottom_row.setSpacing(16)
 
+        priority = normalize_priority(task.get("priority", 0))
+        if priority:
+            priority_lbl = QLabel(priority_label(priority))
+            priority_lbl.setStyleSheet(priority_badge_style(priority))
+            bottom_row.addWidget(priority_lbl)
+
         created = format_date(task.get("created_at", ""))
         if created:
             created_lbl = QLabel(f"📅 Added: {created}")
@@ -399,7 +493,7 @@ class TaskCard(QFrame):
 
         self.status_btn = QPushButton(meta["label"])
         self.status_btn.setStyleSheet(status_badge_style(current_status))
-        self.status_btn.setToolTip("Edit status / deadline")
+        self.status_btn.setToolTip("Edit status / deadline / priority")
         self.status_btn.setCursor(Qt.PointingHandCursor)
         self.status_btn.clicked.connect(self._open_edit_dialog)
         bottom_row.addWidget(self.status_btn)
@@ -409,8 +503,8 @@ class TaskCard(QFrame):
     def _open_edit_dialog(self) -> None:
         dialog = EditTaskDialog(self.task, parent=self.window())
         if dialog.exec() == QDialog.Accepted:
-            new_status, new_deadline = dialog.get_values()
-            self.on_edit(self.task.get("id"), new_status, new_deadline)
+            new_status, new_deadline, new_priority = dialog.get_values()
+            self.on_edit(self.task.get("id"), new_status, new_deadline, new_priority)
 
 
 # ── Task Page (one per status) ────────────────────────────────────────────────
@@ -493,7 +587,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addSpacing(12)
 
         self.nav_buttons = []
-        nav_items = [("☐  To Do", 0), ("⟳  In Progress", 1), ("✓  Done", 2)]
+        nav_items = [("🗒️  To Do", 0), ("🚧  In Progress", 1), ("🏁  Done", 2)]
         for label, index in nav_items:
             btn = QPushButton(label)
             btn.setStyleSheet(NAV_BUTTON_STYLE)
@@ -521,7 +615,7 @@ class MainWindow(QMainWindow):
         self.stack.setStyleSheet("background-color: #181825;")
 
         status_keys = ["todo", "inprogress", "done"]
-        page_titles = ["To Do", "In Progress", "Done"]
+        page_titles = ["🗒️ To Do", "🚧 In Progress", "🏁 Done"]
         self.pages: dict[str, TaskPage] = {}
 
         for key, title in zip(status_keys, page_titles):
@@ -543,7 +637,7 @@ class MainWindow(QMainWindow):
     def refresh_all_pages(self) -> None:
         for key, page in self.pages.items():
             page.refresh(
-                get_tasks_by_status(self.tasks, key),
+                sort_tasks_by_priority(get_tasks_by_status(self.tasks, key)),
                 self.on_delete_task,
                 self.on_edit_task,
             )
@@ -553,12 +647,13 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.Accepted:
             return
 
-        title, description, status, deadline = dialog.get_values()
+        title, description, status, deadline, priority = dialog.get_values()
         if not title:
             QMessageBox.warning(self, "Missing Title", "Please enter a task title.")
             return
 
-        add_task(self.tasks, title, description, status, deadline)
+        task = add_task(self.tasks, title, description, status, deadline)
+        task["priority"] = normalize_priority(priority)
         save_tasks(self.tasks, self.current_file)
         self.refresh_all_pages()
 
@@ -577,12 +672,15 @@ class MainWindow(QMainWindow):
         save_tasks(self.tasks, self.current_file)
         self.refresh_all_pages()
 
-    def on_edit_task(self, task_id: str, new_status: str, new_deadline: str) -> None:
-        """Update a task's status and deadline, then refresh all pages."""
+    def on_edit_task(
+        self, task_id: str, new_status: str, new_deadline: str, new_priority: int
+    ) -> None:
+        """Update a task's status, deadline, and priority, then refresh all pages."""
         for task in self.tasks:
             if task.get("id") == task_id:
                 task["status"] = new_status
                 task["deadline"] = new_deadline
+                task["priority"] = normalize_priority(new_priority)
                 break
         save_tasks(self.tasks, self.current_file)
         self.refresh_all_pages()
