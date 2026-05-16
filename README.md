@@ -91,17 +91,29 @@ python -m unittest discover tests/
 
 ## Screenshots
 
-> *(Screenshots of the app will be here once the UI is complete)*
+**To Do**
+![To Do Tab](screenshot_todo.png)
+
+**In Progress**
+![In Progress Tab](screenshot_inprogress.png)
+
+**Done**
+![Done Tab](screenshot_done.png)
+
+**Schedule**
+![Schedule Tab](screenshot_schedule.png)
 
 ---
 
 ## Team Members
 
-| Name | Role |
+| Name | Role & Contributions |
 |---|---|
-| Asanali Serik | *(TBD)* |
-| Sanzhar Zhussip | *(TBD)* |
-| Allazhar Kuat | *(TBD)* |
+| Asanali Serik | Project architecture and initialization; implemented JSON-based data persistence layer; designed and developed the application navigation bar |
+| Sanzhar Zhussip | Designed and implemented the Schedule tab, including task timeline rendering and date-based filtering logic |
+| Allazhar Kuat | Developed the deadline tracking and priority management system, including sorting, validation, and visual priority indicators |
+
+Each team member contributed equally to the overall design, testing, and documentation of the project.
 
 ---
 
