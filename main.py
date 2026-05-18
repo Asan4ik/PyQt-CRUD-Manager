@@ -924,7 +924,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addSpacing(12)
 
         self.nav_buttons = []
-        nav_items = [("☐  To Do", 0), ("⟳  In Progress", 1), ("✓  Done", 2), ("📆 Schedule", 3)]
+        nav_items = [("🗒️  To Do", 0), ("🚧 In Progress", 1), ("🏁  Done", 2), ("📆 Schedule", 3)]
         for label, index in nav_items:
             btn = QPushButton(label)
             btn.setStyleSheet(NAV_BUTTON_STYLE)
