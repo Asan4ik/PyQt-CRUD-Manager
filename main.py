@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt, QDate
 
 from utils.helpers import (
     load_tasks, save_tasks, add_task,
-    delete_task, get_tasks_by_status, format_date
+    delete_task, get_tasks_by_status, format_date, normalize_priority
 )
 
 DEFAULT_PATH = Path("data/tasks.json")
