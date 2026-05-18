@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt, QDate
 
 from utils.helpers import (
     load_tasks, save_tasks, add_task,
-    delete_task, get_tasks_by_status, format_date
+    delete_task, get_tasks_by_status, format_date, normalize_priority
 )
 
 
@@ -216,7 +216,7 @@ class AddTaskDialog(QDialog):
 
         layout.addWidget(self._label("Status"))
         self.status_input = QComboBox()
-        self.status_input.addItems(["To Do", "In Progress", "Done"])
+        self.status_input.addItems(["📋 To Do", "🔄 In Progress", "✅ Done"])
         self.status_input.setStyleSheet(INPUT_STYLE)
         layout.addWidget(self.status_input)
 
@@ -259,7 +259,7 @@ class AddTaskDialog(QDialog):
         return lbl
 
     def get_values(self) -> tuple[str, str, str, str, int]:
-        status_map = {"To Do": "todo", "In Progress": "inprogress", "Done": "done"}
+       
         deadline = ""
         if not self.no_deadline_cb.isChecked():
             deadline = self.deadline_input.date().toString("yyyy-MM-dd")
@@ -920,13 +920,13 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(12, 20, 12, 20)
         sidebar_layout.setSpacing(8)
 
-        app_title = QLabel("📝 Tasks")
+        app_title = QLabel("📌 Tasks")
         app_title.setStyleSheet("color: #cdd6f4; font-size: 18px; font-weight: bold; padding: 8px 4px;")
         sidebar_layout.addWidget(app_title)
         sidebar_layout.addSpacing(12)
 
         self.nav_buttons = []
-        nav_items = [("☐  To Do", 0), ("⟳  In Progress", 1), ("✓  Done", 2), ("📆 Schedule", 3)]
+        nav_items = [("🗒️  To Do", 0), ("🚧 In Progress", 1), ("🏁  Done", 2), ("📆 Schedule", 3)]
         for label, index in nav_items:
             btn = QPushButton(label)
             btn.setStyleSheet(NAV_BUTTON_STYLE)
@@ -937,14 +937,14 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
 
-        load_btn = QPushButton("📂  Load JSON File")
+        load_btn = QPushButton("🗂️  Load JSON File")
         load_btn.setStyleSheet(LOAD_BUTTON_STYLE)
         load_btn.clicked.connect(self.on_load_file)
         sidebar_layout.addWidget(load_btn)
 
         sidebar_layout.addSpacing(6)
 
-        add_btn = QPushButton("+ Add Task")
+        add_btn = QPushButton("➕  Add Task")
         add_btn.setStyleSheet(ADD_BUTTON_STYLE)
         add_btn.clicked.connect(self.on_add_task)
         sidebar_layout.addWidget(add_btn)
