@@ -264,7 +264,7 @@ class AddTaskDialog(QDialog):
         return (
             self.title_input.text().strip(),
             self.desc_input.toPlainText().strip(),
-            status_map[self.status_input.currentText()],
+            status,
             deadline,
             self.priority_input.currentIndex(),
         )
