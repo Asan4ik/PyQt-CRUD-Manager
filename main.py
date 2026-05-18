@@ -918,7 +918,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(12, 20, 12, 20)
         sidebar_layout.setSpacing(8)
 
-        app_title = QLabel("📝 Tasks")
+        app_title = QLabel("📌 Tasks")
         app_title.setStyleSheet("color: #cdd6f4; font-size: 18px; font-weight: bold; padding: 8px 4px;")
         sidebar_layout.addWidget(app_title)
         sidebar_layout.addSpacing(12)
@@ -935,14 +935,14 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
 
-        load_btn = QPushButton("📂  Load JSON File")
+        load_btn = QPushButton("🗂️  Load JSON File")
         load_btn.setStyleSheet(LOAD_BUTTON_STYLE)
         load_btn.clicked.connect(self.on_load_file)
         sidebar_layout.addWidget(load_btn)
 
         sidebar_layout.addSpacing(6)
 
-        add_btn = QPushButton("+ Add Task")
+        add_btn = QPushButton("➕  Add Task")
         add_btn.setStyleSheet(ADD_BUTTON_STYLE)
         add_btn.clicked.connect(self.on_add_task)
         sidebar_layout.addWidget(add_btn)
