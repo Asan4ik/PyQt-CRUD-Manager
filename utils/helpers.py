@@ -67,6 +67,7 @@ def add_task(
     priority: int = MIN_PRIORITY,
 ) -> dict:
     """Create a new task, append it to the list, and return it."""
+    task = create_task(title, description, status, deadline)
     task = create_task(title, description, status, deadline, priority)
     tasks.append(task)
     return task
@@ -82,19 +83,23 @@ def delete_task(tasks: list[dict], task_id: str) -> bool:
 
 
 def get_tasks_by_status(tasks: list[dict], status: str) -> list[dict]:
+    """Return tasks matching the given status, sorted by deadline then created_at."""
     """Return tasks matching the given status, sorted by priority, deadline, and creation date."""
     filtered = [t for t in tasks if t.get("status") == status]
     return sort_tasks(filtered)
 
 
 def sort_tasks(tasks: list[dict]) -> list[dict]:
+    """Sort tasks: ones with a deadline first (earliest first), then by creation date."""
     """Sort tasks by priority first, then deadline (earliest first), then creation date."""
     def sort_key(task: dict):
         deadline = task.get("deadline", "")
         created = task.get("created_at", "")
+        # Tasks with a deadline sort before those without
         priority = normalize_priority(task.get("priority", MIN_PRIORITY))
         # Higher priority should appear first; tasks with a deadline sort before those without.
         has_deadline = 0 if deadline else 1
+        return (has_deadline, deadline, created)
         return (-priority, has_deadline, deadline, created)
 
     return sorted(tasks, key=sort_key)

@@ -17,6 +17,8 @@ from utils.helpers import (
 )
 
 DEFAULT_PATH = Path("data/tasks.json")
+MIN_PRIORITY = 0
+MAX_PRIORITY = 3
 
 # ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -115,16 +117,10 @@ CHECKBOX_STYLE = """
 
 # Status badge colors and labels
 STATUS_META = {
-    "todo":       {"label": "📋 To Do",       "bg": "#45475a", "color": "#cdd6f4"},
-    "inprogress": {"label": "🔄 In Progress",  "bg": "#1e3a5f", "color": "#89b4fa"},
-    "done":       {"label": "✅ Done",         "bg": "#1e3a2f", "color": "#a6e3a1"},
+    "todo":       {"label": "🗒️ To Do",       "bg": "#45475a", "color": "#cdd6f4"},
+    "inprogress": {"label": "🚧 In Progress",  "bg": "#1e3a5f", "color": "#89b4fa"},
+    "done":       {"label": "🏁 Done",         "bg": "#1e3a2f", "color": "#a6e3a1"},
 }
-
-STATUS_OPTIONS = [
-    ("📋 To Do", "todo"),
-    ("🔄 In Progress", "inprogress"),
-    ("✅ Done", "done"),
-]
 
 PRIORITY_META = {
     0: {"label": "No priority", "prefix": "", "bg": "#45475a", "color": "#a6adc8"},
@@ -132,6 +128,23 @@ PRIORITY_META = {
     2: {"label": "!! Medium", "prefix": "!!", "bg": "#4a351f", "color": "#fab387"},
     3: {"label": "!!! High", "prefix": "!!!", "bg": "#4a2633", "color": "#f38ba8"},
 }
+
+
+def normalize_priority(priority: int | str | None) -> int:
+    """Return a safe task priority from 0 (normal) to 3 (highest)."""
+    try:
+        normalized = int(priority)
+    except (TypeError, ValueError):
+        return MIN_PRIORITY
+    return max(MIN_PRIORITY, min(MAX_PRIORITY, normalized))
+
+
+def sort_tasks_by_priority(tasks: list[dict]) -> list[dict]:
+    """Sort already-filtered tasks by priority first, keeping helper deadline ordering next."""
+    return sorted(
+        tasks,
+        key=lambda task: -normalize_priority(task.get("priority", MIN_PRIORITY)),
+    )
 
 
 def priority_prefix(priority: int | str | None) -> str:
@@ -201,8 +214,7 @@ class AddTaskDialog(QDialog):
 
         layout.addWidget(self._label("Status"))
         self.status_input = QComboBox()
-        for label, value in STATUS_OPTIONS:
-            self.status_input.addItem(label, value)
+        self.status_input.addItems(["📋 To Do", "🔄 In Progress", "✅ Done"])
         self.status_input.setStyleSheet(INPUT_STYLE)
         layout.addWidget(self.status_input)
 
@@ -238,13 +250,14 @@ class AddTaskDialog(QDialog):
         confirm_btn.clicked.connect(self.accept)
         layout.addWidget(confirm_btn)
 
-    def _label(self, text: str) -> QLabel:
+    @staticmethod
+    def _label(text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setStyleSheet("color: #a6adc8; font-size: 12px; font-weight: bold;")
         return lbl
 
     def get_values(self) -> tuple[str, str, str, str, int]:
-        status = self.status_input.currentData() or "todo"
+       
         deadline = ""
         if not self.no_deadline_cb.isChecked():
             deadline = self.deadline_input.date().toString("yyyy-MM-dd")
@@ -310,9 +323,9 @@ class EditTaskDialog(QDialog):
         current_status = task.get("status", "todo")
 
         status_items = [
-            ("todo",       "📋  To Do",       "#cdd6f4", "#45475a", "#585b70"),
-            ("inprogress", "🔄  In Progress",  "#89b4fa", "#1e3a5f", "#1a2f4a"),
-            ("done",       "✅  Done",         "#a6e3a1", "#1e3a2f", "#1a3028"),
+            ("todo",       "🗒️  To Do",       "#cdd6f4", "#45475a", "#585b70"),
+            ("inprogress", "🚧  In Progress",  "#89b4fa", "#1e3a5f", "#1a2f4a"),
+            ("done",       "🏁  Done",         "#a6e3a1", "#1e3a2f", "#1a3028"),
         ]
 
         for value, label, color, bg, hover in status_items:
@@ -386,7 +399,8 @@ class EditTaskDialog(QDialog):
         save_btn.clicked.connect(self.accept)
         layout.addWidget(save_btn)
 
-    def _label(self, text: str) -> QLabel:
+    @staticmethod
+    def _label(text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setStyleSheet("color: #a6adc8; font-size: 12px; font-weight: bold;")
         return lbl
@@ -543,6 +557,341 @@ class TaskPage(QWidget):
         for task in tasks:
             self.cards_layout.addWidget(TaskCard(task, on_delete, on_edit))
 
+# ── Schedule Page ─────────────────────────────────────────────────────────────
+
+SCHEDULE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+SCHEDULE_HOURS = [
+    "08:00–09:00", "09:00–10:00", "10:00–11:00",
+    "11:00–12:00", "12:00–13:00", "13:00–14:00",
+    "14:00–15:00", "15:00–16:00", "16:00–17:00",
+    "17:00–18:00", "18:00–19:00", "19:00–20:00"
+]
+
+SCHEDULE_CELL_STYLE = """
+    QFrame {
+        background-color: #313244;
+        border-radius: 6px;
+        border: 1px solid #45475a;
+    }
+"""
+
+SCHEDULE_TASK_CHIP_STYLE = """
+    QLabel {
+        background-color: #45475a;
+        color: #cdd6f4;
+        border-radius: 4px;
+        padding: 3px 6px;
+        font-size: 11px;
+    }
+"""
+
+SCHEDULE_DROP_LABEL_STYLE = "color: #6c7086; font-size: 11px; font-style: italic;"
+
+class ScheduleCell(QFrame):
+    """One time-slot cell for a given day."""
+
+    def __init__(self, day: str, hour: str, save_callback=None, parent=None):
+        super().__init__(parent)
+        self.day = day
+        self.hour = hour
+        self._save_callback = save_callback
+        self.setStyleSheet(SCHEDULE_CELL_STYLE)
+        self.setFixedSize(150, 80)
+        self.setAcceptDrops(True)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(6, 4, 6, 4)
+        self._layout.setSpacing(3)
+        self._layout.setAlignment(Qt.AlignTop)
+
+        self._drop_hint = QLabel("drop here")
+        self._drop_hint.setStyleSheet(SCHEDULE_DROP_LABEL_STYLE)
+        self._layout.addWidget(self._drop_hint)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasText():
+            self.setStyleSheet(SCHEDULE_CELL_STYLE.replace("#313244", "#3d3f57"))
+            event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        self.setStyleSheet(SCHEDULE_CELL_STYLE)
+        event.accept()
+
+    def dropEvent(self, event):
+        self.setStyleSheet(SCHEDULE_CELL_STYLE)
+        data = event.mimeData().text()
+        if "||" in data:
+            title, bg, color = data.split("||")
+        else:
+            title, bg, color = data, "#cba6f7", "#1e1e2e"
+        self._add_chip(title, bg, color)
+        event.acceptProposedAction()
+        if self._save_callback:
+            self._save_callback()
+
+    def _add_chip(self, title: str, bg: str = "#cba6f7", color: str = "#1e1e2e"):
+        self._drop_hint.hide()
+
+        container = QFrame()
+        container.setStyleSheet(f"""
+            QFrame {{
+                background-color: {bg};
+                border-radius: 4px;
+            }}
+        """)
+        container.setProperty("chip_bg", bg)
+        container.setProperty("chip_fg", color)
+        container.setProperty("chip_title", title)
+
+        row = QHBoxLayout(container)
+        row.setContentsMargins(6, 4, 4, 4)
+        row.setSpacing(4)
+
+        chip = QLabel(title)
+        chip.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: bold; background: transparent;")
+        chip.setWordWrap(True)
+        chip.setAlignment(Qt.AlignCenter)
+        row.addWidget(chip, stretch=1)
+
+        remove_btn = QPushButton("✕")
+        remove_btn.setFixedSize(16, 16)
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: rgba(255,255,255,0.6);
+                border: none;
+                font-size: 10px;
+                padding: 0px;
+            }
+            QPushButton:hover { color: white; }
+        """)
+        remove_btn.clicked.connect(lambda: self._remove_chip(container))
+        row.addWidget(remove_btn, alignment=Qt.AlignTop)
+
+        self._layout.addWidget(container, stretch=1)
+
+    def _remove_chip(self, container: QFrame) -> None:
+        # count BEFORE removing
+        remaining = [
+            self._layout.itemAt(i).widget()
+            for i in range(self._layout.count())
+            if self._layout.itemAt(i).widget() not in (None, self._drop_hint, container)
+        ]
+        self._layout.removeWidget(container)
+        container.deleteLater()
+        if not remaining:
+            self._drop_hint.show()
+        if self._save_callback:
+            self._save_callback()
+
+
+class DraggableTaskItem(QLabel):
+    """A draggable task pill shown in the left panel of SchedulePage."""
+
+    def __init__(self, title: str, bg: str = "#45475a", fg: str = "#cdd6f4", parent=None):
+        super().__init__(title, parent)
+        self._bg = bg
+        self._fg = fg
+        self._drag_start = None
+        self.setStyleSheet(f"""
+            QLabel {{
+                background-color: {bg};
+                color: {fg};
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QLabel:hover {{ background-color: #585b70; }}
+        """)
+        self.setWordWrap(True)
+        self.setCursor(Qt.OpenHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_start = event.position().toPoint()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton:
+            from PySide6.QtGui import QDrag
+            from PySide6.QtCore import QMimeData
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setText(f"{self.text()}||{self._bg}||{self._fg}")
+            drag.setMimeData(mime)
+            drag.exec(Qt.CopyAction)
+
+
+class SchedulePage(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._cells: dict[tuple, ScheduleCell] = {}
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Left panel: To Do + In Progress tasks ──
+        left = QWidget()
+        left.setFixedWidth(180)
+        left.setStyleSheet("background-color: #1e1e2e;")
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(12, 20, 12, 12)
+        left_layout.setSpacing(8)
+
+        lbl = QLabel("☐ To Do")
+        lbl.setStyleSheet("color: #cba6f7; font-size: 13px; font-weight: bold;")
+        left_layout.addWidget(lbl)
+
+        hint = QLabel("Drag tasks →")
+        hint.setStyleSheet("color: #6c7086; font-size: 11px;")
+        left_layout.addWidget(hint)
+        left_layout.addSpacing(6)
+
+        self.task_list_layout = QVBoxLayout()
+        self.task_list_layout.setSpacing(6)
+        left_layout.addLayout(self.task_list_layout)
+
+        left_layout.addSpacing(12)
+
+        lbl2 = QLabel("⟳ In Progress")
+        lbl2.setStyleSheet("color: #89b4fa; font-size: 13px; font-weight: bold;")
+        left_layout.addWidget(lbl2)
+
+        hint2 = QLabel("Drag tasks →")
+        hint2.setStyleSheet("color: #6c7086; font-size: 11px;")
+        left_layout.addWidget(hint2)
+        left_layout.addSpacing(6)
+
+        self.inprogress_list_layout = QVBoxLayout()
+        self.inprogress_list_layout.setSpacing(6)
+        left_layout.addLayout(self.inprogress_list_layout)
+        left_layout.addStretch()
+
+        root.addWidget(left)
+
+        # ── Right panel: grid ──
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setStyleSheet("QScrollArea { border: none; background: #181825; }")
+
+        grid_widget = QWidget()
+        grid_widget.setStyleSheet("background: #181825;")
+        from PySide6.QtWidgets import QGridLayout
+        grid = QGridLayout(grid_widget)
+        grid.setSpacing(4)
+        grid.setContentsMargins(12, 20, 12, 20)
+
+        # Header row
+        time_header = QLabel("Time")
+        time_header.setStyleSheet("color: #6c7086; font-size: 11px; font-weight: bold;")
+        time_header.setAlignment(Qt.AlignCenter)
+        grid.addWidget(time_header, 0, 0)
+
+        for col, day in enumerate(SCHEDULE_DAYS, start=1):
+            h = QLabel(day)
+            h.setAlignment(Qt.AlignCenter)
+            h.setFixedWidth(150)
+            h.setStyleSheet("color: #cdd6f4; font-size: 12px; font-weight: bold; padding: 4px;")
+            grid.addWidget(h, 0, col)
+            grid.setColumnStretch(col, 0)
+
+            # Time rows + cells
+        for row, hour in enumerate(SCHEDULE_HOURS, start=1):
+            time_lbl = QLabel(hour)
+            time_lbl.setAlignment(Qt.AlignCenter)
+            time_lbl.setStyleSheet("color: #6c7086; font-size: 10px;")
+            time_lbl.setFixedWidth(70)
+            grid.addWidget(time_lbl, row, 0)
+            grid.setRowStretch(row, 0)
+
+            for col, day in enumerate(SCHEDULE_DAYS, start=1):
+                cell = ScheduleCell(day, hour, save_callback=self.save)
+                self._cells[(day, hour)] = cell
+                grid.addWidget(cell, row, col)
+
+        right_scroll.setWidget(grid_widget)
+        root.addWidget(right_scroll)
+        self.load()
+
+    SCHEDULE_SAVE_PATH = Path("data/schedule.json")
+
+    def save(self) -> None:
+        import json
+        data = {}
+        for (day, hour), cell in self._cells.items():
+            titles = []
+            for i in range(cell._layout.count()):
+                widget = cell._layout.itemAt(i).widget()
+                if isinstance(widget, QFrame):
+                    bg = widget.property("chip_bg") or "#cba6f7"
+                    fg = widget.property("chip_fg") or "#1e1e2e"
+                    title = widget.property("chip_title") or ""
+                    if title:
+                        titles.append(f"{title}||{bg}||{fg}")
+            if titles:
+                data[f"{day}|{hour}"] = titles
+        self.SCHEDULE_SAVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self.SCHEDULE_SAVE_PATH.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+
+    def load(self) -> None:
+        import json
+        if not self.SCHEDULE_SAVE_PATH.exists():
+            return
+        try:
+            data = json.loads(self.SCHEDULE_SAVE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        for key, titles in data.items():
+            day, hour = key.split("|", 1)
+            cell = self._cells.get((day, hour))
+            if cell:
+                for entry in titles:
+                    if "||" in entry:
+                        t, b, c = entry.split("||")
+                        cell._add_chip(t, b, c)
+                    else:
+                        cell._add_chip(entry)
+
+    def remove_task_chips(self, title: str) -> None:
+        """Remove all chips with this title from every cell and save."""
+        for cell in self._cells.values():
+            for i in reversed(range(cell._layout.count())):
+                widget = cell._layout.itemAt(i).widget()
+                if widget is not None and widget is not cell._drop_hint and widget.property("chip_title") == title:
+                    cell._layout.takeAt(i)
+                    widget.deleteLater()
+            # check remaining after removal
+            remaining = [
+                cell._layout.itemAt(i).widget()
+                for i in range(cell._layout.count())
+                if cell._layout.itemAt(i).widget() not in (None, cell._drop_hint)
+            ]
+            if not remaining:
+                cell._drop_hint.show()
+        self.save()
+
+    def refresh_tasks(self, todo_tasks: list[dict], inprogress_tasks: list[dict] = None) -> None:
+        """Repopulate the left panel with current To Do and In Progress tasks."""
+        while self.task_list_layout.count():
+            item = self.task_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for task in todo_tasks:
+            pill = DraggableTaskItem(task.get("title", "Untitled"))
+            self.task_list_layout.addWidget(pill)
+
+        while self.inprogress_list_layout.count():
+            item = self.inprogress_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for task in (inprogress_tasks or []):
+            pill = DraggableTaskItem(task.get("title", "Untitled"), bg="#1e3a5f", fg="#89b4fa")
+            self.inprogress_list_layout.addWidget(pill)
+
 # ── Main Window ───────────────────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -575,7 +924,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addSpacing(12)
 
         self.nav_buttons = []
-        nav_items = [("⬜  To Do", 0), ("🔄  In Progress", 1), ("✅  Done", 2)]
+        nav_items = [("☐  To Do", 0), ("⟳  In Progress", 1), ("✓  Done", 2), ("📆 Schedule", 3)]
         for label, index in nav_items:
             btn = QPushButton(label)
             btn.setStyleSheet(NAV_BUTTON_STYLE)
@@ -603,13 +952,17 @@ class MainWindow(QMainWindow):
         self.stack.setStyleSheet("background-color: #181825;")
 
         status_keys = ["todo", "inprogress", "done"]
-        page_titles = ["📋 To Do", "🔄 In Progress", "✅ Done"]
+        page_titles = ["🗒️ To Do", "🚧 In Progress", "🏁 Done"]
         self.pages: dict[str, TaskPage] = {}
 
         for key, title in zip(status_keys, page_titles):
             page = TaskPage(title)
             self.pages[key] = page
             self.stack.addWidget(page)
+
+        # ── Schedule page (index 3) ──
+        self.schedule_page = SchedulePage()
+        self.stack.addWidget(self.schedule_page)
 
         root_layout.addWidget(sidebar)
         root_layout.addWidget(self.stack)
@@ -625,10 +978,14 @@ class MainWindow(QMainWindow):
     def refresh_all_pages(self) -> None:
         for key, page in self.pages.items():
             page.refresh(
-                get_tasks_by_status(self.tasks, key),
+                sort_tasks_by_priority(get_tasks_by_status(self.tasks, key)),
                 self.on_delete_task,
                 self.on_edit_task,
             )
+        self.schedule_page.refresh_tasks(
+            get_tasks_by_status(self.tasks, "todo"),
+            get_tasks_by_status(self.tasks, "inprogress"),
+        )
 
     def on_add_task(self) -> None:
         dialog = AddTaskDialog(self)
@@ -640,7 +997,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Missing Title", "Please enter a task title.")
             return
 
-        add_task(self.tasks, title, description, status, deadline, priority)
+        task = add_task(self.tasks, title, description, status, deadline)
+        task["priority"] = normalize_priority(priority)
         save_tasks(self.tasks, self.current_file)
         self.refresh_all_pages()
 
@@ -655,8 +1013,12 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.Yes:
             return
+        # find title before deleting so we can remove it from schedule
+        title = next((t.get("title") for t in self.tasks if t.get("id") == task_id), None)
         delete_task(self.tasks, task_id)
         save_tasks(self.tasks, self.current_file)
+        if title:
+            self.schedule_page.remove_task_chips(title)
         self.refresh_all_pages()
 
     def on_edit_task(
