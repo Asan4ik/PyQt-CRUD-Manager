@@ -214,7 +214,7 @@ class AddTaskDialog(QDialog):
 
         layout.addWidget(self._label("Status"))
         self.status_input = QComboBox()
-        self.status_input.addItems(["To Do", "In Progress", "Done"])
+        self.status_input.addItems(["📋 To Do", "🔄 In Progress", "✅ Done"])
         self.status_input.setStyleSheet(INPUT_STYLE)
         layout.addWidget(self.status_input)
 
@@ -257,7 +257,7 @@ class AddTaskDialog(QDialog):
         return lbl
 
     def get_values(self) -> tuple[str, str, str, str, int]:
-        status_map = {"To Do": "todo", "In Progress": "inprogress", "Done": "done"}
+       
         deadline = ""
         if not self.no_deadline_cb.isChecked():
             deadline = self.deadline_input.date().toString("yyyy-MM-dd")
