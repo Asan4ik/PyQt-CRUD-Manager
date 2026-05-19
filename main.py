@@ -257,7 +257,11 @@ class AddTaskDialog(QDialog):
         return lbl
 
     def get_values(self) -> tuple[str, str, str, str, int]:
-       
+        status_map = {
+            "📋 To Do": "todo",
+            "🔄 In Progress": "inprogress",
+            "✅ Done": "done",
+        }
         deadline = ""
         if not self.no_deadline_cb.isChecked():
             deadline = self.deadline_input.date().toString("yyyy-MM-dd")
