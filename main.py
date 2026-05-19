@@ -1,5 +1,7 @@
 import sys
 from pathlib import Path
+
+
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout, QLabel,
@@ -258,7 +260,7 @@ class AddTaskDialog(QDialog):
         lbl.setStyleSheet("color: #a6adc8; font-size: 12px; font-weight: bold;")
         return lbl
 
-    def get_values(self) -> tuple[str, str, str, str, int]:
+    def get_values(self, status_map=None) -> tuple[str, str, str, str, int]:
        
         deadline = ""
         if not self.no_deadline_cb.isChecked():
